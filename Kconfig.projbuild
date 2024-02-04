@@ -1,7 +1,7 @@
-menu "Component template Configuration"
+menu "Component drv_fan Configuration"
 
-    config TEMPLATE_USE
-        bool "Use template component"
+    config DRV_FAN_USE
+        bool "Use drv_fan component"
         default y
         
 endmenu

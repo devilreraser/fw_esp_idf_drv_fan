@@ -1,5 +1,5 @@
 /* *****************************************************************************
- * File:   template.h
+ * File:   drv_fan.c
  * Author: XX
  *
  * Created on YYYY MM DD
@@ -7,21 +7,21 @@
  * Description: ...
  * 
  **************************************************************************** */
-#pragma once
-
-#ifdef __cplusplus
-extern "C"
-{
-#endif /* __cplusplus */
-
 
 /* *****************************************************************************
  * Header Includes
  **************************************************************************** */
-    
+#include "drv_fan.h"
+
+#include <stdbool.h>
+#include <stdint.h>
+
 /* *****************************************************************************
  * Configuration Definitions
  **************************************************************************** */
+#define TAG "drv_fan"
+
+#define MAX_FAN_ENTRIES 2
 
 /* *****************************************************************************
  * Constants and Macros Definitions
@@ -34,23 +34,37 @@ extern "C"
 /* *****************************************************************************
  * Type Definitions
  **************************************************************************** */
+typedef struct
+{
+    int pwm_gpio;           /* if -1 - not used */
+    int tacho_gpio;         /* if -1 - not used */
+    int tacho_gpio_level_changes_per_mechanical_round;
+}drv_fan_s_entry_t;
+
 
 /* *****************************************************************************
- * Function-Like Macro
+ * Function-Like Macros
  **************************************************************************** */
 
 /* *****************************************************************************
- * Variables External Usage
- **************************************************************************** */ 
+ * Variables Definitions
+ **************************************************************************** */
+drv_fan_s_entry_t fan_entry[MAX_FAN_ENTRIES] = {0};
 
 /* *****************************************************************************
- * Function Prototypes
+ * Prototype of functions definitions
  **************************************************************************** */
 
-
-
-#ifdef __cplusplus
+/* *****************************************************************************
+ * Functions
+ **************************************************************************** */
+void drv_fan_init(int fan_index, int pwm_gpio, int tacho_gpio, int tacho_change_per_round)
+{
+    if (fan_index < MAX_FAN_ENTRIES)
+    {
+        fan_entry[fan_index].pwm_gpio = pwm_gpio;
+        fan_entry[fan_index].tacho_gpio = tacho_gpio;
+        fan_entry[fan_index].tacho_gpio_level_changes_per_mechanical_round = tacho_change_per_round;
+    }
 }
-#endif /* __cplusplus */
-
 
