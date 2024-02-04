@@ -1,0 +1,7 @@
+menu "Component template Configuration"
+
+    config TEMPLATE_USE
+        bool "Use template component"
+        default y
+        
+endmenu
