@@ -53,6 +53,7 @@ typedef enum
  * Function Prototypes
  **************************************************************************** */
 void drv_fan_init(int fan_index, int pwm_gpio, int tacho_gpio, int tacho_change_per_round);
+int drv_fan_get_speed_rpm(int fan_index);
 
 
 
