@@ -12,7 +12,9 @@
  * Header Includes
  **************************************************************************** */
 #include "drv_fan.h"
+#include "cmd_fan.h"
 
+#include "sdkconfig.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include "driver/gpio.h"
@@ -20,13 +22,16 @@
 #include "esp_timer.h"
 #include "esp_system.h"
 #include "esp_log.h"
+
+#include "drv_pwm_led.h"
+
 /* *****************************************************************************
  * Configuration Definitions
  **************************************************************************** */
 #define TAG "drv_fan"
 
 
-
+#define MIN_PWM_DUTY_PERCENT    15
 
 #define MAX_FAN_ENTRIES 2
 
@@ -51,6 +56,8 @@ typedef struct
     int count_edges;
     int64_t last_time_us_between_edges;
     int64_t last_time_us_speed_read;
+    drv_pwm_led_e_channel_t pwm_channel;
+
 }drv_fan_s_entry_t;
 
 
@@ -63,6 +70,7 @@ typedef struct
  **************************************************************************** */
 drv_fan_s_entry_t fan_entry[MAX_FAN_ENTRIES] = {0};
 bool b_isr_service_installed = false;
+drv_pwm_led_e_timer_t pwm_fan_timer = DRV_PWM_LED_TIMER_MAX;
 
 /* *****************************************************************************
  * Prototype of functions definitions
@@ -72,6 +80,11 @@ static void fan_speed_gpio_isr_handler(void* arg);
 /* *****************************************************************************
  * Functions
  **************************************************************************** */
+void drv_fan_cmd_register(void)
+{
+    cmd_fan_register();
+}
+
 void drv_fan_init(int fan_index, int pwm_gpio, int tacho_gpio, int tacho_change_per_round)
 {
     if (fan_index < MAX_FAN_ENTRIES)
@@ -86,7 +99,36 @@ void drv_fan_init(int fan_index, int pwm_gpio, int tacho_gpio, int tacho_change_
 
         if (pwm_gpio != GPIO_NUM_NC)
         {
-            gpio_set_direction(pwm_gpio, GPIO_MODE_OUTPUT_OD);
+            #if CONFIG_DRV_PWM_LED_USE
+            if (pwm_fan_timer == DRV_PWM_LED_TIMER_MAX)
+            {
+                pwm_fan_timer = drv_pwm_led_free_timer_get();
+                drv_pwm_led_init_timer(pwm_fan_timer, 25000);                                                 /* 25000 Hz */
+            }
+            if (pwm_fan_timer < DRV_PWM_LED_TIMER_MAX)
+            {
+                drv_pwm_led_e_channel_t pwm_fan_channel = drv_pwm_led_free_channel_get();
+                if (pwm_fan_channel < DRV_PWM_LED_CHANNEL_MAX)
+                {
+                    fan_entry[fan_index].pwm_channel = pwm_fan_channel;
+                    drv_pwm_led_init(fan_entry[fan_index].pwm_channel, fan_entry[fan_index].pwm_gpio, pwm_fan_timer, MIN_PWM_DUTY_PERCENT, 0.0);             /* 0% duty 0% offset_set_high */
+                }
+                else
+                {
+                    ESP_LOGE(TAG, "pwm_fan_channel = DRV_PWM_LED_CHANNEL_MAX - cannot set pwm_gpio[%d]", fan_index);
+                }
+            }
+            else
+            {
+                ESP_LOGE(TAG, "pwm_fan_timer = DRV_PWM_LED_TIMER_MAX - cannot set pwm_gpio[%d]", fan_index);
+            }
+            
+            #endif
+
+            //gpio_set_direction(pwm_gpio, GPIO_MODE_OUTPUT);
+            
+            //gpio_set_direction(pwm_gpio, GPIO_MODE_OUTPUT_OD);
+            //gpio_set_pull_mode(pwm_gpio, GPIO_PULLUP_ONLY);
         }
         
         if (tacho_gpio != GPIO_NUM_NC)
@@ -105,8 +147,35 @@ void drv_fan_init(int fan_index, int pwm_gpio, int tacho_gpio, int tacho_change_
 
     }
 }
+void drv_fan_pwm_duty(int fan_index, int percent)
+{
+    if (fan_index < MAX_FAN_ENTRIES)
+    {
+        //gpio_set_level(fan_entry[fan_index].pwm_gpio, 0);
+        drv_pwm_led_set_duty(fan_entry[fan_index].pwm_channel, percent);
+        ESP_LOGI(TAG, "Set %d duty for FAN[%d]", percent, fan_index);
+    }
+}
 
-void drv_fan_disable(void)
+void drv_fan_start(int fan_index)
+{
+    if (fan_index < MAX_FAN_ENTRIES)
+    {
+        //gpio_set_level(fan_entry[fan_index].pwm_gpio, 0);
+        drv_pwm_led_set_duty(fan_entry[fan_index].pwm_channel, 100.0);
+    }
+}
+
+void drv_fan_stop(int fan_index)
+{
+    if (fan_index < MAX_FAN_ENTRIES)
+    {
+        //gpio_set_level(fan_entry[fan_index].pwm_gpio, 1);
+        drv_pwm_led_set_duty(fan_entry[fan_index].pwm_channel, 10.0);
+    }
+}
+
+void drv_fan_tacho_disable(void)
 {
     for (int index = 0; index < MAX_FAN_ENTRIES; index++)
     {
@@ -127,7 +196,7 @@ void drv_fan_disable(void)
     }
 }
 
-void drv_fan_enable(void)
+void drv_fan_tacho_enable(void)
 {
     for (int index = 0; index < MAX_FAN_ENTRIES; index++)
     {
@@ -150,6 +219,7 @@ void drv_fan_enable(void)
 
 int drv_fan_get_speed_rpm(int fan_index)
 {
+    fix level of tacho signal at esp side!!! 
     ESP_LOGI(TAG, "FAN[%d] time_us:%5d edges:%5d last_us:%d", fan_index, (int)fan_entry[fan_index].last_time_us_between_edges, fan_entry[fan_index].count_edges, (int)fan_entry[fan_index].last_time_us_since_boot);
     int64_t curr_read_time = esp_timer_get_time();
     if (fan_entry[fan_index].count_edges)

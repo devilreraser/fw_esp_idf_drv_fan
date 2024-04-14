@@ -1,8 +1,8 @@
 /* *****************************************************************************
- * File:   drv_fan.h
- * Author: XX
+ * File:   cmd_fan.h
+ * Author: Dimitar Lilov
  *
- * Created on YYYY MM DD
+ * Created on 2022 06 18
  * 
  * Description: ...
  * 
@@ -18,7 +18,7 @@ extern "C"
 /* *****************************************************************************
  * Header Includes
  **************************************************************************** */
-    
+
 /* *****************************************************************************
  * Configuration Definitions
  **************************************************************************** */
@@ -30,12 +30,6 @@ extern "C"
 /* *****************************************************************************
  * Enumeration Definitions
  **************************************************************************** */
-typedef enum
-{
-    DRV_FAN_0,
-    DRV_FAN_1,
-    DRV_FAN_COUNT
-}drv_fan_e_index_t;
 
 /* *****************************************************************************
  * Type Definitions
@@ -52,16 +46,7 @@ typedef enum
 /* *****************************************************************************
  * Function Prototypes
  **************************************************************************** */
-void drv_fan_cmd_register(void);
-void drv_fan_init(int fan_index, int pwm_gpio, int tacho_gpio, int tacho_change_per_round);
-void drv_fan_pwm_duty(int fan_index, int percent);
-void drv_fan_start(int fan_index);
-void drv_fan_stop(int fan_index);
-void drv_fan_tacho_disable(void);
-void drv_fan_tacho_enable(void);
-int drv_fan_get_speed_rpm(int fan_index);
-
-
+void cmd_fan_register(void);
 
 #ifdef __cplusplus
 }
