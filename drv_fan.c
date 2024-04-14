@@ -97,8 +97,8 @@ void drv_fan_init(int fan_index, int pwm_gpio, int tacho_gpio, int tacho_change_
                 gpio_install_isr_service(ESP_INTR_FLAG_SHARED | ESP_INTR_FLAG_IRAM); // Choose an appropriate interrupt flag
                 b_isr_service_installed = true;
             }
-            gpio_set_intr_type(tacho_gpio, GPIO_INTR_ANYEDGE);
             gpio_isr_handler_add(tacho_gpio, fan_speed_gpio_isr_handler, (void*) tacho_gpio);
+            gpio_set_intr_type(tacho_gpio, GPIO_INTR_ANYEDGE);
         }
 
 
@@ -106,6 +106,47 @@ void drv_fan_init(int fan_index, int pwm_gpio, int tacho_gpio, int tacho_change_
     }
 }
 
+void drv_fan_disable(void)
+{
+    for (int index = 0; index < MAX_FAN_ENTRIES; index++)
+    {
+        if (fan_entry[index].tacho_gpio_level_changes_per_mechanical_round)
+        {
+            if (fan_entry[index].tacho_gpio != GPIO_NUM_NC)
+            {
+                if (gpio_intr_disable(fan_entry[index].tacho_gpio) != ESP_OK)
+                {
+                    ESP_LOGE(TAG, "drv_fan_disable of tacho pin %d failure", fan_entry[index].tacho_gpio);
+                }
+                else
+                {
+                    ESP_LOGI(TAG, "drv_fan_disable of tacho pin %d success", fan_entry[index].tacho_gpio);
+                }
+            }
+        }
+    }
+}
+
+void drv_fan_enable(void)
+{
+    for (int index = 0; index < MAX_FAN_ENTRIES; index++)
+    {
+        if (fan_entry[index].tacho_gpio_level_changes_per_mechanical_round)
+        {
+            if (fan_entry[index].tacho_gpio != GPIO_NUM_NC)
+            {
+                if (gpio_intr_enable(fan_entry[index].tacho_gpio) != ESP_OK)
+                {
+                    ESP_LOGE(TAG, "drv_fan_enable of tacho pin %d failure", fan_entry[index].tacho_gpio);
+                }
+                else
+                {
+                    ESP_LOGI(TAG, "drv_fan_enable of tacho pin %d success", fan_entry[index].tacho_gpio);
+                }
+            }
+        }
+    }
+}
 
 int drv_fan_get_speed_rpm(int fan_index)
 {
