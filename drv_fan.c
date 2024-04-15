@@ -30,10 +30,15 @@
  **************************************************************************** */
 #define TAG "drv_fan"
 
+#define MIN_PWM_DUTY_PERCENT_SPEED_READ_ABLE     16      /* minimum speed with tacho pin goes good to ground */
+#define MIN_PWM_DUTY_PERCENT_ABSOLUTE_MIN        12      /* minimum speed (stop request) */
 
-#define MIN_PWM_DUTY_PERCENT    15
+#define PWM_DUTY_PERCENT_INITIAL                MIN_PWM_DUTY_PERCENT_ABSOLUTE_MIN      /* on initialization */
+#define PWM_DUTY_PERCENT_STOP_COMMAND           MIN_PWM_DUTY_PERCENT_SPEED_READ_ABLE   /* minimum speed (stop request) */
 
-#define MAX_FAN_ENTRIES 2
+#define MAX_FAN_ENTRIES             2
+
+#define MIN_EDGE_CHANGE_FILTER_US   2000
 
 /* *****************************************************************************
  * Constants and Macros Definitions
@@ -111,7 +116,7 @@ void drv_fan_init(int fan_index, int pwm_gpio, int tacho_gpio, int tacho_change_
                 if (pwm_fan_channel < DRV_PWM_LED_CHANNEL_MAX)
                 {
                     fan_entry[fan_index].pwm_channel = pwm_fan_channel;
-                    drv_pwm_led_init(fan_entry[fan_index].pwm_channel, fan_entry[fan_index].pwm_gpio, pwm_fan_timer, MIN_PWM_DUTY_PERCENT, 0.0);             /* 0% duty 0% offset_set_high */
+                    drv_pwm_led_init(fan_entry[fan_index].pwm_channel, fan_entry[fan_index].pwm_gpio, pwm_fan_timer, PWM_DUTY_PERCENT_INITIAL, 0.0);             /* 0% duty 0% offset_set_high */
                 }
                 else
                 {
@@ -134,6 +139,7 @@ void drv_fan_init(int fan_index, int pwm_gpio, int tacho_gpio, int tacho_change_
         if (tacho_gpio != GPIO_NUM_NC)
         {
             gpio_set_direction(tacho_gpio, GPIO_MODE_INPUT);
+            gpio_set_pull_mode(tacho_gpio, GPIO_PULLUP_ONLY);
             if (b_isr_service_installed == false)
             {
                 gpio_install_isr_service(ESP_INTR_FLAG_SHARED | ESP_INTR_FLAG_IRAM); // Choose an appropriate interrupt flag
@@ -171,7 +177,7 @@ void drv_fan_stop(int fan_index)
     if (fan_index < MAX_FAN_ENTRIES)
     {
         //gpio_set_level(fan_entry[fan_index].pwm_gpio, 1);
-        drv_pwm_led_set_duty(fan_entry[fan_index].pwm_channel, 10.0);
+        drv_pwm_led_set_duty(fan_entry[fan_index].pwm_channel, PWM_DUTY_PERCENT_STOP_COMMAND);
     }
 }
 
@@ -219,7 +225,6 @@ void drv_fan_tacho_enable(void)
 
 int drv_fan_get_speed_rpm(int fan_index)
 {
-    fix level of tacho signal at esp side!!! 
     ESP_LOGI(TAG, "FAN[%d] time_us:%5d edges:%5d last_us:%d", fan_index, (int)fan_entry[fan_index].last_time_us_between_edges, fan_entry[fan_index].count_edges, (int)fan_entry[fan_index].last_time_us_since_boot);
     int64_t curr_read_time = esp_timer_get_time();
     if (fan_entry[fan_index].count_edges)
@@ -244,10 +249,14 @@ static void fan_speed_gpio_isr_handler(void* arg)
     {
         if (tacho_pin == fan_entry[index].tacho_gpio)
         {
-            fan_entry[index].count_edges++;
             fan_entry[index].last_time_us_between_edges = (curr_interrupt_read_time - fan_entry[index].last_time_us_since_boot);
-            fan_entry[index].speed_rpm = fan_entry[index].last_time_us_between_edges / fan_entry[index].tacho_gpio_level_changes_per_mechanical_round / 10000000 / 60;
-            fan_entry[index].last_time_us_since_boot = curr_interrupt_read_time;
+            if (fan_entry[index].last_time_us_between_edges > MIN_EDGE_CHANGE_FILTER_US)
+            {
+                fan_entry[index].count_edges++;
+                fan_entry[index].speed_rpm = fan_entry[index].last_time_us_between_edges / fan_entry[index].tacho_gpio_level_changes_per_mechanical_round / 10000000 / 60;
+                fan_entry[index].last_time_us_since_boot = curr_interrupt_read_time;
+            }
+
         }
     }
 }
