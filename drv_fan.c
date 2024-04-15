@@ -38,7 +38,8 @@
 
 #define MAX_FAN_ENTRIES             2
 
-#define MIN_EDGE_CHANGE_FILTER_US   2000
+#define MIN_EDGE_CHANGE_FILTER_US   (  1 * 1000)
+#define MAX_TIME_BETWEEN_EDGES_US   (100 * 1000)
 
 /* *****************************************************************************
  * Constants and Macros Definitions
@@ -55,12 +56,15 @@ typedef struct
 {
     int pwm_gpio;           /* if -1 - not used */
     int tacho_gpio;         /* if -1 - not used */
-    int tacho_gpio_level_changes_per_mechanical_round;
-    int64_t last_time_us_since_boot;
+    int tacho_gpio_interrupts_per_mechanical_round;
     int speed_rpm;
-    int count_edges;
-    int64_t last_time_us_between_edges;
-    int64_t last_time_us_speed_read;
+    int speed_rpm_filtered;
+    uint32_t count_interrupts;
+    uint32_t last_time_us_interrupt;
+    int64_t last_time_us_interrupt_prev;
+    uint32_t last_time_us_read;
+    uint32_t last_time_us_read_prev;
+
     drv_pwm_led_e_channel_t pwm_channel;
 
 }drv_fan_s_entry_t;
@@ -96,10 +100,11 @@ void drv_fan_init(int fan_index, int pwm_gpio, int tacho_gpio, int tacho_change_
     {
         fan_entry[fan_index].pwm_gpio = pwm_gpio;
         fan_entry[fan_index].tacho_gpio = tacho_gpio;
-        fan_entry[fan_index].tacho_gpio_level_changes_per_mechanical_round = tacho_change_per_round;
-        fan_entry[fan_index].last_time_us_since_boot = esp_timer_get_time();
+        fan_entry[fan_index].tacho_gpio_interrupts_per_mechanical_round = tacho_change_per_round;
         fan_entry[fan_index].speed_rpm = 0;
-        fan_entry[fan_index].count_edges = 0;
+        fan_entry[fan_index].count_interrupts = 0;
+        fan_entry[fan_index].last_time_us_read_prev = esp_timer_get_time();
+        fan_entry[fan_index].last_time_us_interrupt_prev = esp_timer_get_time();
 
 
         if (pwm_gpio != GPIO_NUM_NC)
@@ -142,7 +147,7 @@ void drv_fan_init(int fan_index, int pwm_gpio, int tacho_gpio, int tacho_change_
             gpio_set_pull_mode(tacho_gpio, GPIO_PULLUP_ONLY);
             if (b_isr_service_installed == false)
             {
-                gpio_install_isr_service(ESP_INTR_FLAG_SHARED | ESP_INTR_FLAG_IRAM); // Choose an appropriate interrupt flag
+                gpio_install_isr_service(ESP_INTR_FLAG_IRAM); // Choose an appropriate interrupt flag
                 b_isr_service_installed = true;
             }
             gpio_isr_handler_add(tacho_gpio, fan_speed_gpio_isr_handler, (void*) tacho_gpio);
@@ -185,7 +190,7 @@ void drv_fan_tacho_disable(void)
 {
     for (int index = 0; index < MAX_FAN_ENTRIES; index++)
     {
-        if (fan_entry[index].tacho_gpio_level_changes_per_mechanical_round)
+        if (fan_entry[index].tacho_gpio_interrupts_per_mechanical_round)
         {
             if (fan_entry[index].tacho_gpio != GPIO_NUM_NC)
             {
@@ -206,7 +211,7 @@ void drv_fan_tacho_enable(void)
 {
     for (int index = 0; index < MAX_FAN_ENTRIES; index++)
     {
-        if (fan_entry[index].tacho_gpio_level_changes_per_mechanical_round)
+        if (fan_entry[index].tacho_gpio_interrupts_per_mechanical_round)
         {
             if (fan_entry[index].tacho_gpio != GPIO_NUM_NC)
             {
@@ -225,38 +230,35 @@ void drv_fan_tacho_enable(void)
 
 int drv_fan_get_speed_rpm(int fan_index)
 {
-    ESP_LOGI(TAG, "FAN[%d] time_us:%5d edges:%5d last_us:%d", fan_index, (int)fan_entry[fan_index].last_time_us_between_edges, fan_entry[fan_index].count_edges, (int)fan_entry[fan_index].last_time_us_since_boot);
     int64_t curr_read_time = esp_timer_get_time();
-    if (fan_entry[fan_index].count_edges)
-    {
-        fan_entry[fan_index].speed_rpm =  ((int64_t)fan_entry[fan_index].count_edges * 1000000 * 60 / 4) / (curr_read_time - fan_entry[fan_index].last_time_us_speed_read);
-    }
-    else
-    {
-        fan_entry[fan_index].speed_rpm = 0;
-    }
-    fan_entry[fan_index].last_time_us_speed_read = curr_read_time;
-    fan_entry[fan_index].count_edges = 0;
+    int interrupts_count = fan_entry[fan_index].count_interrupts;
+    fan_entry[fan_index].count_interrupts = 0;
+
+    fan_entry[fan_index].last_time_us_read = curr_read_time - fan_entry[fan_index].last_time_us_read_prev;
+    fan_entry[fan_index].last_time_us_read_prev = curr_read_time;
+    fan_entry[fan_index].speed_rpm = ((int64_t)interrupts_count * 1000000 * 60) / (fan_entry[fan_index].tacho_gpio_interrupts_per_mechanical_round * fan_entry[fan_index].last_time_us_read);
+
+    ESP_LOGI(TAG, "FAN[%d] last_time_us_read:%5u interrupts:%5d rpm:%d", fan_index, (unsigned int)fan_entry[fan_index].last_time_us_read, interrupts_count, fan_entry[fan_index].speed_rpm);
     return fan_entry[fan_index].speed_rpm;
 }
 
-static void fan_speed_gpio_isr_handler(void* arg)
+
+
+void fan_speed_gpio_isr_handler(void* arg)
 {
-    int64_t curr_interrupt_read_time = esp_timer_get_time();
     int tacho_pin = (int) arg;
 
     for (int index = 0; index < MAX_FAN_ENTRIES; index++)
     {
         if (tacho_pin == fan_entry[index].tacho_gpio)
         {
-            fan_entry[index].last_time_us_between_edges = (curr_interrupt_read_time - fan_entry[index].last_time_us_since_boot);
-            if (fan_entry[index].last_time_us_between_edges > MIN_EDGE_CHANGE_FILTER_US)
+            int64_t curr_interrupt_time = esp_timer_get_time();
+            fan_entry[index].last_time_us_interrupt = curr_interrupt_time - fan_entry[index].last_time_us_interrupt_prev;
+            fan_entry[index].last_time_us_interrupt_prev = curr_interrupt_time;
+            if (fan_entry[index].last_time_us_interrupt > MIN_EDGE_CHANGE_FILTER_US)
             {
-                fan_entry[index].count_edges++;
-                fan_entry[index].speed_rpm = fan_entry[index].last_time_us_between_edges / fan_entry[index].tacho_gpio_level_changes_per_mechanical_round / 10000000 / 60;
-                fan_entry[index].last_time_us_since_boot = curr_interrupt_read_time;
+                fan_entry[index].count_interrupts++;
             }
-
         }
     }
 }
