@@ -94,6 +94,12 @@ void drv_fan_cmd_register(void)
     cmd_fan_register();
 }
 
+void drv_fan_print_level_warning(void)
+{
+    esp_log_level_set(TAG, ESP_LOG_WARN);
+}
+
+
 void drv_fan_init(int fan_index, int pwm_gpio, int tacho_gpio, int tacho_change_per_round)
 {
     if (fan_index < MAX_FAN_ENTRIES)
