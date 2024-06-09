@@ -113,8 +113,8 @@ static int command_fan(int argc, char **argv)
 
 static void register_fan(void)
 {
-    fan_args.duty  = arg_strn("d", "duty",   "<pwm duty>",          0, 1, "Specify fan index : fan -d {0..100}");
-    fan_args.index = arg_strn("i", "index",    "<index>",          1, 1, "Specify fan index : fan -i {0|1}");
+    fan_args.duty  = arg_strn("d", "duty",   "<pwm duty>",           0, 1, "Specify fan duty cycle   : fan -d {0..100}");
+    fan_args.index = arg_strn("i", "index",    "<index>",            1, 1, "Specify fan device index : fan -i {0|1}");
     fan_args.cmd   = arg_strn("c", "command",  "<command>",          1, 1, "Command can be    : fan -c {start|stop|duty}");
     fan_args.end   = arg_end(2);
 
